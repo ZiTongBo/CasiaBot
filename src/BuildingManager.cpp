@@ -32,19 +32,21 @@ void BuildingManager::onFrame()
 			m_bot.Map().drawText(unit->pos, ss.str());
 		}
 	}
-
+	for (auto depot : m_bot.UnitInfo().getUnits(Players::Self)) {
+		if (depot->unit_type.ToType() == sc2::UNIT_TYPEID::TERRAN_SUPPLYDEPOT)
+		{
+			Micro::SmartAbility(depot, sc2::ABILITY_ID::MORPH_SUPPLYDEPOT_LOWER, m_bot);
+		}
+	}
 	validateWorkersAndBuildings();          // check to see if assigned workers have died en route or while constructing
 	assignWorkersToUnassignedBuildings();   // assign workers to the unassigned buildings and label them 'planned'    
 	constructAssignedBuildings();           // for each planned building, if the worker isn't constructing, send the command    
 	checkForStartedConstruction();          // check to see if any buildings have started construction and update data structures    
 	checkForDeadTerranBuilders();           // if we are terran and a building is under construction without a worker, assign a new one    
 	checkForCompletedBuildings();           // check to see if any buildings have completed and update data structures
-	
-	warpGateManager();
+	orbitalCallDownMule();
 	
 	drawBuildingInformation();
-		
-	
 }
 
 bool BuildingManager::isBeingBuilt(sc2::UnitTypeID type)
@@ -104,8 +106,8 @@ void BuildingManager::assignWorkersToUnassignedBuildings()
         if (m_debugMode) { printf("Assigning Worker To: %s", sc2::UnitTypeToName(b.type)); }
 
         // grab a worker unit from WorkerManager which is closest to this final position
-        sc2::Point2D testLocation = getBuildingLocation(b);
-        if (!m_bot.Map().isValid(testLocation))
+        sc2::Point2DI testLocation = getBuildingLocation(b);
+        if (!m_bot.Map().isValidTile(testLocation))
         {
             continue;
         }
@@ -181,7 +183,7 @@ void BuildingManager::constructAssignedBuildings()
                     const sc2::Unit * geyser = nullptr;
                     for (auto unit : m_bot.Observation()->GetUnits())
                     {
-                        if (Util::IsGeyser(unit) && Util::Dist(b.finalPosition, unit->pos) < 3)
+                        if (Util::IsGeyser(unit) && Util::Dist(Util::GetPosition(b.finalPosition), unit->pos) < 3)
                         {
                             geyser = unit;
                             break;
@@ -306,39 +308,9 @@ void BuildingManager::checkForCompletedBuildings()
 	
     removeBuildings(toRemove);
 }
-void BuildingManager::warpGateManager() {
-	if (!m_bot.warpgateComplete()) {
 
-		for (auto b : m_bot.UnitInfo().getUnits(Players::Self))
-		{
-			if (b->unit_type == sc2::UNIT_TYPEID::PROTOSS_NEXUS)
-			{
-				for (auto c : m_bot.UnitInfo().getUnits(Players::Self)) {
-					if (c->unit_type == sc2::UNIT_TYPEID::PROTOSS_CYBERNETICSCORE)
-						Micro::SmartAbility(b, sc2::ABILITY_ID::EFFECT_CHRONOBOOST, c, m_bot);
-				}
-			}
-		}
-	}
-	else {
-		for (auto b : m_bot.UnitInfo().getUnits(Players::Self))
-		{
-			if (b->unit_type == sc2::UNIT_TYPEID::PROTOSS_NEXUS)
-			{
-				Micro::SmartAbility(b, sc2::ABILITY_ID::EFFECT_CHRONOBOOST, b, m_bot);
-			}
-		}
-		for (auto b : m_bot.UnitInfo().getUnits(Players::Self))
-		{
-			if (b->unit_type == sc2::UNIT_TYPEID::PROTOSS_GATEWAY) {
-				Micro::SmartAbility(b, sc2::ABILITY_ID::MORPH_WARPGATE, m_bot);
-			}
-
-		}
-	}
-}
 // add a new building to be constructed
-void BuildingManager::addBuildingTask(const sc2::UnitTypeID & type, const sc2::Point2D & desiredPosition)
+void BuildingManager::addBuildingTask(const sc2::UnitTypeID & type, const sc2::Point2DI & desiredPosition)
 {
     m_reservedMinerals  += Util::GetUnitTypeMineralPrice(type, m_bot);
     m_reservedGas	    += Util::GetUnitTypeGasPrice(type, m_bot);
@@ -352,7 +324,7 @@ void BuildingManager::addBuildingTask(const sc2::UnitTypeID & type, const sc2::P
 // TODO: may need to iterate over all tiles of the building footprint
 bool BuildingManager::isBuildingPositionExplored(const Building & b) const
 {
-    return m_bot.Map().isExplored(b.finalPosition);
+    return m_bot.Map().isExplored(Util::GetPosition(b.finalPosition));
 }
 
 
@@ -369,6 +341,54 @@ int BuildingManager::getReservedMinerals()
 int BuildingManager::getReservedGas()
 {
     return m_reservedGas;
+}
+const sc2::Unit * BuildingManager::getMineralToMine(const sc2::Unit * unit) const
+{
+	const sc2::Unit * bestMineral = nullptr;
+	double bestDist = 100000;
+	for (auto base : m_bot.Bases().getOccupiedBaseLocations(Players::Self))
+	{
+		for (auto mineral : base->getMinerals())
+		{
+			if (!Util::IsMineral(mineral)) continue;
+
+			double dist = Util::Dist(mineral->pos, unit->pos);
+
+			if (dist < bestDist)
+			{
+				bestMineral = mineral;
+				bestDist = dist;
+			}
+		}
+	}
+
+	return bestMineral;
+}
+void BuildingManager::orbitalCallDownMule()
+{
+	for (auto orbital : m_bot.UnitInfo().getUnits(Players::Self))
+	{
+		if (orbital->unit_type.ToType() == sc2::UNIT_TYPEID::TERRAN_ORBITALCOMMAND)
+		{
+			sc2::AvailableAbilities available_abilities = m_bot.Query()->GetAbilitiesForUnit(orbital);
+			for (auto mule : available_abilities.abilities)
+			{
+				if (mule.ability_id == sc2::ABILITY_ID::EFFECT_CALLDOWNMULE)
+				{
+					Micro::SmartAbility(orbital, sc2::ABILITY_ID::EFFECT_CALLDOWNMULE, getMineralToMine(orbital), m_bot);
+				}
+			}
+		}
+	}
+}
+int BuildingManager::NumberOfBuildingTypeInProduction(sc2::UnitTypeID unit_type) const
+{
+	int count = 0;
+	for (const auto & b : m_buildings)
+	{
+		if (b.type == unit_type) ++count;
+	}
+	return count;
 }
 
 void BuildingManager::drawBuildingInformation()
@@ -410,10 +430,10 @@ void BuildingManager::drawBuildingInformation()
         {
             ss << "Assigned " << sc2::UnitTypeToName(b.type) << "    " << b.builderUnit->tag << " " << getBuildingWorkerCode(b) << " (" << b.finalPosition.x << "," << b.finalPosition.y << ")\n";
 
-            float x1 = b.finalPosition.x;
-            float y1 = b.finalPosition.y;
-            float x2 = b.finalPosition.x + Util::GetUnitTypeWidth(b.type, m_bot);
-            float y2 = b.finalPosition.y + Util::GetUnitTypeHeight(b.type, m_bot);
+            int x1 = b.finalPosition.x;
+            int y1 = b.finalPosition.y;
+            int x2 = b.finalPosition.x + Util::GetUnitTypeWidth(b.type, m_bot);
+            int y2 = b.finalPosition.y + Util::GetUnitTypeHeight(b.type, m_bot);
 
             m_bot.Map().drawSquare(x1, y1, x2, y2, sc2::Colors::Red);
             //m_bot.Map().drawLine(b.finalPosition, m_bot.GetUnit(b.builderUnitTag)->pos, sc2::Colors::Yellow);
@@ -442,7 +462,7 @@ std::vector<sc2::UnitTypeID> BuildingManager::buildingsQueued() const
     return buildingsQueued;
 }
 
-sc2::Point2D BuildingManager::getBuildingLocation(const Building & b)
+sc2::Point2DI BuildingManager::getBuildingLocation(const Building & b)
 {
     size_t numPylons = m_bot.UnitInfo().getUnitTypeCount(Players::Self, Util::GetSupplyProvider(m_bot.GetPlayerRace(Players::Self)), true);
 
@@ -455,13 +475,17 @@ sc2::Point2D BuildingManager::getBuildingLocation(const Building & b)
 
     if (Util::IsTownHallType(b.type))
     {
-        // TODO: fix this so we can actually expand
-        //return m_bot.Bases().getNextExpansion(Players::Self);
+        return m_bot.Bases().getNextExpansion(Players::Self);
     }
-
+	if (b.type.ToType() == sc2::UNIT_TYPEID::PROTOSS_PYLON) 
+	{
+		return m_buildingPlacer.getBuildLocationNear(b, 2);
+	}
+	int buildingSpacing = m_bot.Config().BuildingSpacing;
+	
     // get a position within our region
     // TODO: put back in special pylon / cannon spacing
-    return m_buildingPlacer.getBuildLocationNear(b, m_bot.Config().BuildingSpacing);
+    return m_buildingPlacer.getBuildLocationNear(b, buildingSpacing);
 }
 
 void BuildingManager::removeBuildings(const std::vector<Building> & toRemove)

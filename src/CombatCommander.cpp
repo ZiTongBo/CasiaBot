@@ -41,10 +41,7 @@ bool CombatCommander::isSquadUpdateFrame()
 
 void CombatCommander::onFrame(const std::vector<const sc2::Unit *> & combatUnits)
 {
-    if (!m_attackStarted)
-    {
-        m_attackStarted = shouldWeStartAttacking();
-    }
+	m_attackStarted = m_bot.State().shouldAttack();
 
     m_combatUnits = combatUnits;
 
@@ -81,13 +78,38 @@ void CombatCommander::updateIdleSquad()
 
 void CombatCommander::updateAttackSquads()
 {
+	if (m_bot.State().m_rallyAtPylon)
+	{
+		auto closestPylon = Util::getClosestPylon(m_bot);
+		if (closestPylon)
+		{
+			bool allRally = false;
+			sc2::Point2D rallyPos = closestPylon->pos + sc2::Point2D(5, 0);
+			for (auto & unit : m_combatUnits)
+			{
+				Micro::SmartAttackMove(unit, rallyPos, m_bot);
+				if (Util::PlanerDist(unit->pos, rallyPos) > 5) allRally = false;
+			}
+			// must all rally
+			if (!allRally) return;
+		}
+	}
+
+	bool shouldattack = shouldWeStartAttacking();
+
+	const BaseLocation * enemyBaseLocation = m_bot.Bases().getPlayerStartingBaseLocation(Players::Enemy);
+	// if we have enough army and know enemy baselocation
+	if (shouldattack && enemyBaseLocation) {
+		m_attackStarted = true;
+	}
+
     if (!m_attackStarted)
     {
-        return;
+		return;
     }
-
+	
     Squad & mainAttackSquad = m_squadData.getSquad("MainAttack");
-
+	
     for (auto unit : m_combatUnits)
     {   
         BOT_ASSERT(unit, "null unit in combat units");
@@ -101,7 +123,7 @@ void CombatCommander::updateAttackSquads()
             m_squadData.assignUnitToSquad(unit, mainAttackSquad);
         }
     }
-
+	
     SquadOrder mainAttackOrder(SquadOrderTypes::Attack, getMainAttackLocation(), 25, "Attack Enemy Base");
     mainAttackSquad.setSquadOrder(mainAttackOrder);
 }
@@ -421,9 +443,27 @@ sc2::Point2D CombatCommander::getMainAttackLocation()
             return enemyUnit->pos;
         }
     }
+	
 
-    // Fourth choice: We can't see anything so explore the map attacking along the way
-    return m_bot.Map().getLeastRecentlySeenPosition();
+	// for each start location in the level
+
+	if (!enemyBaseLocation)
+	{
+		for (const BaseLocation * startLocation : m_bot.Bases().getStartingBaseLocations())
+		{
+			
+			// if we haven't explored it yet then scout it out
+			// TODO: this is where we could change the order of the base scouting, since right now it's iterator order
+			if (!m_bot.Map().isExplored(startLocation->getPosition()))
+			{
+				return startLocation->getPosition();
+			}
+		}
+	}
+
+	//return enemyBaseLocation->getPosition();
+    //Fourth choice: We can't see anything so explore the map attacking along the way
+    return Util::GetPosition(m_bot.Map().getLeastRecentlySeenPosition());
 }
 
 const sc2::Unit * CombatCommander::findClosestWorkerTo(std::vector<const sc2::Unit *> & unitsToAssign, const sc2::Point2D & target)

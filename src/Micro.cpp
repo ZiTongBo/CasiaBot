@@ -29,6 +29,12 @@ void Micro::SmartMove(const sc2::Unit * attacker, const sc2::Point2D & targetPos
     bot.Actions()->UnitCommand(attacker, sc2::ABILITY_ID::MOVE, targetPosition);
 }
 
+void Micro::SmartMove(const sc2::Unit * attacker, const sc2::Point2DI & targetPosition, CCBot & bot)
+{
+	BOT_ASSERT(attacker != nullptr, "Attacker is null");
+	bot.Actions()->UnitCommand(attacker, sc2::ABILITY_ID::MOVE, Util::GetPosition(targetPosition));
+}
+
 void Micro::SmartRightClick(const sc2::Unit * unit, const sc2::Unit * target, CCBot & bot)
 {
     BOT_ASSERT(unit != nullptr, "Unit is null");
@@ -48,10 +54,10 @@ void Micro::SmartKiteTarget(const sc2::Unit * rangedUnit, const sc2::Unit * targ
     bot.Actions()->UnitCommand(rangedUnit, sc2::ABILITY_ID::ATTACK_ATTACK, target);
 }
 
-void Micro::SmartBuild(const sc2::Unit * builder, const sc2::UnitTypeID & buildingType, sc2::Point2D pos, CCBot & bot)
+void Micro::SmartBuild(const sc2::Unit * builder, const sc2::UnitTypeID & buildingType, sc2::Point2DI pos, CCBot & bot)
 {
     BOT_ASSERT(builder != nullptr, "Builder is null");
-    bot.Actions()->UnitCommand(builder, bot.Data(buildingType).buildAbility, pos);
+    bot.Actions()->UnitCommand(builder, bot.Data(buildingType).buildAbility, Util::GetPosition(pos));
 }
 
 void Micro::SmartBuildTarget(const sc2::Unit * builder, const sc2::UnitTypeID & buildingType, const sc2::Unit * target, CCBot & bot)
@@ -65,6 +71,18 @@ void Micro::SmartTrain(const sc2::Unit * builder, const sc2::UnitTypeID & buildi
 {
     BOT_ASSERT(builder != nullptr, "Builder is null");
     bot.Actions()->UnitCommand(builder, bot.Data(buildingType).buildAbility);
+}
+
+void Micro::SmartMorph(const sc2::Unit * builder, const sc2::UnitTypeID & buildingType, CCBot & bot)
+{
+	BOT_ASSERT(builder != nullptr, "Builder is null");
+	bot.Actions()->UnitCommand(builder, bot.Data(buildingType).buildAbility);
+}
+
+void Micro::SmartAddon(const sc2::Unit * builder, const sc2::UnitTypeID & buildingType, CCBot & bot)
+{
+	BOT_ASSERT(builder != nullptr, "Builder is null");
+	bot.Actions()->UnitCommand(builder, bot.Data(buildingType).buildAbility);
 }
 
 void Micro::SmartWarp(const sc2::Unit * builder, const sc2::UnitTypeID & buildingType, const sc2::Point2D& point, CCBot & bot)

@@ -1,5 +1,6 @@
 #include "MacroAct.h"
 #include "CCBot.h"
+#include "Util.h"
 
 #include <regex>
 
@@ -29,9 +30,17 @@ MacroLocation MacroAct::getMacroLocationFromString(std::string & s)
 	{
 		return MacroLocation::Natural;
 	}
+	if (s == "third")
+	{
+		return MacroLocation::Third;
+	}
 	if (s == "enemy natural")
 	{
 		return MacroLocation::EnemyNatural;
+	}
+	if (s == "enemy third")
+	{
+		return MacroLocation::EnemyThird;
 	}
 
 	BOT_ASSERT(false, "config file - bad location '%s' after @", s.c_str());
@@ -64,14 +73,41 @@ MacroAct::MacroAct(const std::string & name, CCBot & bot)
 			if (MacroCommand::hasArgument(t))
 			{
 				// There's an argument. Match the command name and parse out the argument.
-				std::regex commandWithArgRegex(commandName + " (\\d+)");
+				std::regex commandWithArgRegex(commandName + " ([^\\s]+)");
 				std::smatch m;
 				if (std::regex_match(inputName, m, commandWithArgRegex)) {
-					int amount = GetIntFromString(m[1].str());
-					if (amount >= 0) {
-						*this = MacroAct(t, amount);
-						_type = MacroActs::Command;
-						return;
+					if (MacroCommand::hasAmount(t))
+					{
+						int amount = atoi(m[1].str().c_str());
+						if (amount >= 0)
+						{
+							*this = MacroAct(t, amount);
+							_type = MacroActs::Command;
+							return;
+						}
+					}
+					else if (MacroCommand::hasTarget(t))
+					{
+						auto target = sc2::UnitTypeID(Util::GetUnitTypeIDFromName(m[1].str(), bot));
+						if (target != sc2::UNIT_TYPEID::INVALID)
+						{
+							*this = MacroAct(t, target);
+							_type = MacroActs::Command;
+							return;
+						}
+					}
+					else if (MacroCommand::hasPosition(t))
+					{
+						std::string pos = m[1].str();
+						std::string pos_x = pos.substr(0, pos.find(','));
+						std::string pos_y = pos.substr(pos.find(',') + 1);
+						double x = atof(pos_x.c_str()), y = atof(pos_y.c_str());
+						if (x > 0.0f && y > 0.0f)
+						{
+							*this = MacroAct(t, sc2::Point2D(x, y));
+							_type = MacroActs::Command;
+							return;
+						}
 					}
 				}
 			}
@@ -94,7 +130,8 @@ MacroAct::MacroAct(const std::string & name, CCBot & bot)
 																	  // It's meaningless and ignored for anything except a building.
 																	  // Here we parse out the building and its location.
 																	  // Since buildings are units, only UnitType below sets _macroLocation.
-	std::regex macroLocationRegex("([a-z_ ]+[a-z])\\s*\\@\\s*([a-z][a-z ]+)");
+
+	std::regex macroLocationRegex("([a-z_ ]+[a-z])\\s+\\@\\s+([a-z][a-z ]+)");
 	std::smatch m;
 	if (std::regex_match(inputName, m, macroLocationRegex)) {
 		specifiedMacroLocation = getMacroLocationFromString(m[2].str());
@@ -150,6 +187,20 @@ MacroAct::MacroAct(MacroCommandType t, int amount)
 {
 }
 
+MacroAct::MacroAct(MacroCommandType t, sc2::UnitTypeID target)
+	: _macroCommandType(t, target)
+	, _type(MacroActs::Command)
+	, _macroLocation(MacroLocation::Anywhere)
+{
+}
+
+MacroAct::MacroAct(MacroCommandType t, sc2::Point2D position)
+	: _macroCommandType(t, position)
+	, _type(MacroActs::Command)
+	, _macroLocation(MacroLocation::Anywhere)
+{
+}
+
 const size_t & MacroAct::type() const
 {
 	return _type;
@@ -178,6 +229,11 @@ const sc2::Race & MacroAct::getRace() const
 bool MacroAct::isBuilding(CCBot & bot) const
 {
 	return _type == MacroActs::Unit && bot.Data(_buildType.getUnitTypeID()).isBuilding;
+}
+
+bool MacroAct::isAddon(CCBot &bot) const
+{
+	return _type == MacroActs::Unit && bot.Data(_buildType.getUnitTypeID()).isAddon;
 }
 
 bool MacroAct::isRefinery(CCBot & bot)	const
@@ -212,9 +268,56 @@ const MacroCommand MacroAct::getCommandType() const
 	return _macroCommandType;
 }
 
-const MacroLocation MacroAct::getMacroLocation() const
+const sc2::Point2DI MacroAct::getMacroLocation(CCBot & bot) const
 {
-	return _macroLocation;
+	if (_macroLocation == MacroLocation::Natural) {
+		auto loc = bot.Bases().getPlayerNaturalLocation(Players::Self);
+		if (loc) return loc->getDepotPosition();
+	}
+	else if (_macroLocation == MacroLocation::Third) {
+		auto loc = bot.Bases().getPlayerThirdLocation(Players::Self);
+		if (loc) return loc->getDepotPosition();
+	}
+	else if (_macroLocation == MacroLocation::Main) {
+		auto loc = bot.Bases().getPlayerStartingBaseLocation(Players::Self);
+		if (loc) return loc->getDepotPosition();
+	}
+	else if (_macroLocation == MacroLocation::EnemyNatural) {
+		auto loc = bot.Bases().getPlayerNaturalLocation(Players::Enemy);
+		if (loc) return loc->getDepotPosition();
+	}
+	else if (_macroLocation == MacroLocation::EnemyThird) {
+		auto loc = bot.Bases().getPlayerThirdLocation(Players::Enemy);
+		if (loc) return loc->getDepotPosition();
+		/*{
+			float mineralCenterX = 0.0f, mineralCenterY = 0.0f;
+
+			const sc2::Unit * g1 = nullptr, * g2 = nullptr;
+			auto enemyBasePos = bot.Bases().getPlayerThirdLocation(Players::Enemy)->getPosition();
+			for (auto & geyser : loc->getGeysers())
+			{
+				if (!g1)
+				{
+					g1 = geyser;
+				}
+				else if (Util::PlanerDist(g1->pos, enemyBasePos) < Util::PlanerDist(geyser->pos, enemyBasePos))
+				{
+					g2 = g1;
+					g1 = geyser;
+				}
+			}
+			if (g1 && g2)
+			{
+				sc2::Point2D g1Pos(g1->pos.x, g1->pos.y), g2Pos(g2->pos.x, g2->pos.y);
+				return sc2::Point2DI((g1->pos.x + g2->pos.x) / 2, (g1->pos.y + g2->pos.y) / 2);
+			}
+			
+		}*/
+		//system("pause");
+		
+		
+	}
+	return sc2::Point2DI(0, 0);
 }
 
 int MacroAct::supplyRequired(CCBot & bot) const
@@ -228,14 +331,6 @@ int MacroAct::supplyRequired(CCBot & bot) const
 
 int MacroAct::mineralPrice(CCBot & bot) const
 {
-	if (isCommand()) {
-		if (_macroCommandType.getType() == MacroCommandType::ExtractorTrickDrone ||
-			_macroCommandType.getType() == MacroCommandType::ExtractorTrickZergling) {
-			// 50 for the extractor and 50 for the unit. Never mind that you get some back.
-			return 100;
-		}
-		return 0;
-	}
 	return isUnit() ?
 		bot.Data(_buildType.getUnitTypeID()).mineralCost :
 		bot.Data(_buildType.getUpgradeID()).mineralCost;

@@ -82,10 +82,10 @@ void GameCommander::setScoutUnits()
     if (m_scoutUnits.empty() && !m_initialScoutSet)
     {
         // if it exists
-        if (shouldSendInitialScout())
+        if (shouldSendInitialScout() && m_bot.State().m_scout)
         {
             // grab the closest worker to the supply provider to send to scout
-            const sc2::Unit * workerScout = m_bot.Workers().getClosestMineralWorkerTo(m_bot.GetStartLocation());
+            const sc2::Unit * workerScout = m_bot.Workers().getClosestBuildableWorkerTo(m_bot.GetStartLocation());
 
             // if we find a worker (which we should) add it to the scout units
             if (workerScout)
@@ -104,11 +104,9 @@ void GameCommander::setScoutUnits()
 
 bool GameCommander::shouldSendInitialScout()
 {
-    
-	
     switch (m_bot.GetPlayerRace(Players::Self))
     {
-        case sc2::Race::Terran:  return m_bot.UnitInfo().getUnitTypeCount(Players::Self, sc2::UNIT_TYPEID::TERRAN_SUPPLYDEPOT, true) > 0;
+        case sc2::Race::Terran:  return m_bot.UnitInfo().getUnitTypeCount(Players::Self, sc2::UNIT_TYPEID::TERRAN_SUPPLYDEPOT, true) >= 0;
         case sc2::Race::Protoss: return m_bot.UnitInfo().getUnitTypeCount(Players::Self, sc2::UNIT_TYPEID::PROTOSS_PYLON, true) > 0 && m_bot.UnitInfo().getUnitTypeCount(Players::Self, sc2::UNIT_TYPEID::PROTOSS_PYLON, true) < 2;
         case sc2::Race::Zerg:    return m_bot.UnitInfo().getUnitTypeCount(Players::Self, sc2::UNIT_TYPEID::ZERG_SPAWNINGPOOL, true) > 0;
         default: return false;

@@ -25,6 +25,7 @@ class BuildingManager
     void            checkForStartedConstruction();			// STEP 4
     void            checkForDeadTerranBuilders();			// STEP 5
     void            checkForCompletedBuildings();			// STEP 6
+	void            orbitalCallDownMule();
 
     char            getBuildingWorkerCode(const Building & b) const;
 
@@ -34,13 +35,13 @@ public:
 
     void                onStart();
     void                onFrame();
-    void                addBuildingTask(const sc2::UnitTypeID & type, const sc2::Point2D & desiredPosition);
+    void                addBuildingTask(const sc2::UnitTypeID & type, const sc2::Point2DI & desiredPosition);
     void                drawBuildingInformation();
-    sc2::Point2D        getBuildingLocation(const Building & b);
-
+    sc2::Point2DI        getBuildingLocation(const Building & b);
+	const sc2::Unit *   getMineralToMine(const sc2::Unit * unit) const;
     int                 getReservedMinerals();
     int                 getReservedGas();
-
+	int                 NumberOfBuildingTypeInProduction(sc2::UnitTypeID unit_type) const;
     bool                isBeingBuilt(sc2::UnitTypeID type);
 
     std::vector<sc2::UnitTypeID> buildingsQueued() const;

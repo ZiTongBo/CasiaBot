@@ -142,17 +142,17 @@ void BaseLocationManager::onFrame()
     for (auto & baseLocation : m_baseLocationData)
     {
         baseLocation.setPlayerOccupying(Players::Self, false);
-        baseLocation.setPlayerOccupying(Players::Self, false);
+        baseLocation.setPlayerOccupying(Players::Enemy, false);
     }
 
     // for each unit on the map, update which base location it may be occupying
-    for (auto & unit : m_bot.Observation()->GetUnits(sc2::Unit::Alliance::Ally))
+    for (auto & unit : m_bot.Observation()->GetUnits())
     {
         // we only care about buildings on the ground
-        if (!m_bot.Data(unit->unit_type).isBuilding || unit->is_flying)
-        {
-            continue;
-        }
+		if (!Util::IsTownHall(unit) || unit->is_flying)
+		{
+			continue;
+		}
 
         BaseLocation * baseLocation = getBaseLocation(unit->pos);
 
@@ -182,15 +182,42 @@ void BaseLocationManager::onFrame()
 
     // update the starting locations of the enemy player
     // this will happen one of two ways:
+	// if not found start base location
+	if (m_playerStartingBaseLocations[Players::Self] == nullptr)
+	{
+		auto selfStartLoc = m_bot.Observation()->GetStartLocation();
+		auto selfStartPos = sc2::Point2D(selfStartLoc.x, selfStartLoc.y);
+		const sc2::Unit * selfStartBase = nullptr;
+		for (auto & unit : m_bot.UnitInfo().getUnits(Players::Self))
+		{
+			if (Util::IsTownHall(unit) &&
+				Util::PlanerDist(unit->pos, selfStartPos) < 10)
+			{
+				selfStartBase = unit;
+				break;
+			}
+		}
+		if (selfStartBase)
+		{
+			for (auto & startLocation : m_startingBaseLocations)
+			{
+				if (Util::PlanerDist(startLocation->getDepotPosition(), selfStartBase->pos) < 10)
+				{
+					m_playerStartingBaseLocations[Players::Self] = startLocation;
+					break;
+				}
+			}
+		}
+	}
     
     // 1. we've seen the enemy base directly, so the baselocation will know
     if (m_playerStartingBaseLocations[Players::Enemy] == nullptr)
     {
-        for (auto & baseLocation : m_baseLocationData)
+        for (auto & startLocation : m_startingBaseLocations)
         {
-            if (baseLocation.isPlayerStartLocation(Players::Enemy))
+            if (startLocation->isPlayerStartLocation(Players::Enemy))
             {
-                m_playerStartingBaseLocations[Players::Enemy] = &baseLocation;
+                m_playerStartingBaseLocations[Players::Enemy] = startLocation;
             }
         }
     }
@@ -245,6 +272,82 @@ void BaseLocationManager::onFrame()
 
     // draw the debug information for each base location
     
+	// if we have found self base location
+	if (m_playerStartingBaseLocations[Players::Self] && !m_playerNaturalLocations[Players::Self])
+	{
+		// calculate natural loc
+		const BaseLocation * selfNaturalLoc = nullptr;
+		sc2::Point2D selfStartPos = m_playerStartingBaseLocations[Players::Self]->getPosition();
+		for (auto & loc : m_baseLocationPtrs)
+		{
+			if (selfStartPos == loc->getPosition()) continue;
+			if (!selfNaturalLoc
+				|| selfNaturalLoc->getGroundDistance(selfStartPos) > loc->getGroundDistance(selfStartPos))
+			{
+				selfNaturalLoc = loc;
+			}
+		}
+		m_playerNaturalLocations[Players::Self] = selfNaturalLoc;
+
+		// calculate third loc
+		const BaseLocation * selfThirdLoc = nullptr;
+		sc2::Point2D selfNaturalPos = selfNaturalLoc->getPosition();
+		for (auto & loc : m_baseLocationPtrs)
+		{
+			if (selfStartPos == loc->getPosition() || selfNaturalPos == loc->getPosition()) continue;
+			if (!selfThirdLoc
+				|| selfThirdLoc->getGroundDistance(selfStartPos) > loc->getGroundDistance(selfStartPos))
+			{
+				selfThirdLoc = loc;
+			}
+		}
+		m_playerThirdLocations[Players::Self] = selfThirdLoc;
+	}
+
+	// if we have found enemy base location
+	if (m_playerStartingBaseLocations[Players::Enemy] && !m_playerNaturalLocations[Players::Enemy])
+	
+	{
+		
+		// calculate natural loc
+		const BaseLocation * enemyNaturalLoc = nullptr;
+		sc2::Point2D enemyStartPos = m_playerStartingBaseLocations[Players::Enemy]->getPosition();
+		for (auto & loc : m_baseLocationPtrs)
+		{
+			if (enemyStartPos == loc->getPosition()) continue;
+			if (!enemyNaturalLoc
+				|| enemyNaturalLoc->getGroundDistance(enemyStartPos) > loc->getGroundDistance(enemyStartPos))
+			{
+				enemyNaturalLoc = loc;
+			}
+		}
+		m_playerNaturalLocations[Players::Enemy] = enemyNaturalLoc;
+		
+		// calculate third loc
+		const BaseLocation * enemyThirdLoc = nullptr;
+		sc2::Point2D enemyNaturalPos = enemyNaturalLoc->getPosition();
+		for (auto & loc : m_baseLocationPtrs)
+		{
+			if (enemyStartPos == loc->getPosition() || enemyNaturalPos == loc->getPosition()) continue;
+			if (!enemyThirdLoc
+				|| enemyThirdLoc->getGroundDistance(enemyStartPos) > loc->getGroundDistance(enemyStartPos))
+			{
+				enemyThirdLoc = loc;
+			}
+		}
+		m_playerThirdLocations[Players::Enemy] = enemyThirdLoc;
+		
+	}
+
+	if (m_playerStartingBaseLocations[Players::Self])
+	{
+		auto pos = m_playerStartingBaseLocations[Players::Self]->getDepotPosition();
+	}
+
+	if (m_playerStartingBaseLocations[Players::Enemy])
+	{
+		auto pos = m_playerStartingBaseLocations[Players::Enemy]->getDepotPosition();
+	}
 }
 
 BaseLocation * BaseLocationManager::getBaseLocation(const sc2::Point2D & pos) const
@@ -267,10 +370,10 @@ void BaseLocationManager::drawBaseLocations()
     }
 
     // draw a purple sphere at the next expansion location
-    sc2::Point2D nextExpansionPosition = getNextExpansion(Players::Self);
+    sc2::Point2DI nextExpansionPosition = getNextExpansion(Players::Self);
 
-    m_bot.Map().drawSphere(nextExpansionPosition, 1, sc2::Colors::Purple);
-    m_bot.Map().drawText(nextExpansionPosition, "Next Expansion Location", sc2::Colors::Purple);
+    //m_bot.Map().drawSphere(nextExpansionPosition, 1, sc2::Colors::Purple);
+    //m_bot.Map().drawText(nextExpansionPosition, "Next Expansion Location", sc2::Colors::Purple);
 }
 
 const std::vector<const BaseLocation *> & BaseLocationManager::getBaseLocations() const
@@ -285,7 +388,20 @@ const std::vector<const BaseLocation *> & BaseLocationManager::getStartingBaseLo
 
 const BaseLocation * BaseLocationManager::getPlayerStartingBaseLocation(int player) const
 {
-    return m_playerStartingBaseLocations.at(player);
+	auto itr = m_playerStartingBaseLocations.find(player);
+	return itr == m_playerStartingBaseLocations.end() ? nullptr : itr->second;
+}
+
+const BaseLocation * BaseLocationManager::getPlayerNaturalLocation(int player) const
+{
+	auto itr = m_playerNaturalLocations.find(player);
+	return itr == m_playerNaturalLocations.end() ? nullptr : itr->second;
+}
+
+const BaseLocation * BaseLocationManager::getPlayerThirdLocation(int player) const
+{
+	auto itr = m_playerThirdLocations.find(player);
+	return itr == m_playerThirdLocations.end() ? nullptr : itr->second;
 }
 
 const std::set<const BaseLocation *> & BaseLocationManager::getOccupiedBaseLocations(int player) const
@@ -294,7 +410,7 @@ const std::set<const BaseLocation *> & BaseLocationManager::getOccupiedBaseLocat
 }
 
 
-sc2::Point2D BaseLocationManager::getNextExpansion(int player) const
+sc2::Point2DI BaseLocationManager::getNextExpansion(int player) const
 {
     const BaseLocation * homeBase = getPlayerStartingBaseLocation(player);
     const BaseLocation * closestBase = nullptr;
@@ -314,7 +430,10 @@ sc2::Point2D BaseLocationManager::getNextExpansion(int player) const
         auto tile = base->getDepotPosition();
         
         bool buildingInTheWay = false; // TODO: check if there are any units on the tile
-
+		for (auto & unit : m_bot.UnitInfo().getUnits(Players::Self)) {
+			if (Util::Dist(unit->pos, Util::GetPosition(tile)) < 1 && (unit->unit_type.ToType() == sc2::UNIT_TYPEID::TERRAN_COMMANDCENTER || unit->unit_type.ToType() == sc2::UNIT_TYPEID::TERRAN_ORBITALCOMMAND))
+				buildingInTheWay = true;
+		}
         if (buildingInTheWay)
         {
             continue;
@@ -336,5 +455,5 @@ sc2::Point2D BaseLocationManager::getNextExpansion(int player) const
         }
     }
 
-    return closestBase ? closestBase->getDepotPosition() : sc2::Point2D(0.0f, 0.0f);
+    return closestBase ? closestBase->getDepotPosition() : sc2::Point2DI(0, 0);
 }

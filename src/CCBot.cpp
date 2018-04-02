@@ -11,8 +11,8 @@ CCBot::CCBot()
     , m_gameCommander(*this)
     , m_strategy(*this)
     , m_techTree(*this)
-	, m_warpgateResearched(false)
-	, m_blinkResearched(false)
+	, m_state(*this)
+
 {
     
 }
@@ -20,7 +20,10 @@ CCBot::CCBot()
 void CCBot::OnGameStart() 
 {
     m_config.readConfigFile();
-    
+	for (auto & loc : Observation()->GetGameInfo().enemy_start_locations)
+	{
+		m_baseLocations.push_back(loc);
+	}
     // get my race
     auto playerID = Observation()->GetPlayerID();
     for (auto & playerInfo : Observation()->GetGameInfo().player_info)
@@ -41,7 +44,6 @@ void CCBot::OnGameStart()
     m_unitInfo.onStart();
     m_bases.onStart();
     m_workers.onStart();
-
     m_gameCommander.onStart();
 }
 
@@ -54,24 +56,21 @@ void CCBot::OnStep()
     m_bases.onFrame();
     m_workers.onFrame();
     m_strategy.onFrame();
-
+	m_state.onFrame();
+	//m_baseMan.onframe();
     m_gameCommander.onFrame();
 
     Debug()->SendDebug();
 }
 
+void CCBot::OnUnitCreated(const sc2::Unit * unit)
+{
+
+}
+
 void CCBot::OnUpgradeCompleted(sc2::UpgradeID upgradeID)
 {
-	switch (upgradeID.ToType()) {
-	case sc2::UPGRADE_ID::WARPGATERESEARCH: {
-		m_warpgateResearched = true;
-	}
-	case sc2::UPGRADE_ID::BLINKTECH: {
-		m_blinkResearched = true;
-	}
-	default:
-		break;
-	}
+	m_state.OnUpgradeCompleted(upgradeID);
 }
 
 // TODO: Figure out my race
@@ -121,6 +120,8 @@ const TypeData & CCBot::Data(const BuildType & type) const
     return m_techTree.getData(type);
 }
 
+
+
 WorkerManager & CCBot::Workers()
 {
     return m_workers;
@@ -131,6 +132,17 @@ const sc2::Unit * CCBot::GetUnit(const UnitTag & tag) const
     return Observation()->GetUnit(tag);
 }
 
+
+StateManager & CCBot::State()
+{
+	return m_state;
+}
+
+const std::vector<CCPosition> & CCBot::GetStartLocations() const
+{
+	return m_baseLocations;
+}
+
 sc2::Point2D CCBot::GetStartLocation() const
 {
     return Observation()->GetStartLocation();
@@ -139,4 +151,14 @@ sc2::Point2D CCBot::GetStartLocation() const
 void CCBot::OnError(const std::vector<sc2::ClientError> & client_errors, const std::vector<std::string> & protocol_errors)
 {
     
+}
+
+int CCBot::GetCurrentSupply() const
+{
+	return Observation()->GetFoodUsed();
+}
+
+int CCBot::GetMaxSupply() const
+{
+	return Observation()->GetFoodCap();
 }

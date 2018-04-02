@@ -12,7 +12,9 @@
 #include "StrategyManager.h"
 #include "TechTree.h"
 #include "BuildType.h"
+#include "StateManager.h"
 
+#include "UnitType.h"
 class CCBot : public sc2::Agent 
 {
     sc2::Race               m_playerRace[2];
@@ -22,13 +24,11 @@ class CCBot : public sc2::Agent
     UnitInfoManager         m_unitInfo;
     WorkerManager           m_workers;
     StrategyManager         m_strategy;
+	StateManager			m_state;
     BotConfig               m_config;
     TechTree                m_techTree;
-
+	std::vector<CCPosition> m_baseLocations;
     GameCommander           m_gameCommander;
-
-	bool					m_warpgateResearched;
-	bool					m_blinkResearched;
 
     void OnError(const std::vector<sc2::ClientError> & client_errors, 
                  const std::vector<std::string> & protocol_errors = {}) override;
@@ -39,7 +39,7 @@ public:
     void OnGameStart() override;
     void OnStep() override;
 	void OnUpgradeCompleted(sc2::UpgradeID upgradeID) override;
-
+	void OnUnitCreated(const sc2::Unit* unit) override;
           BotConfig & Config();
           WorkerManager & Workers();
     const BaseLocationManager & Bases() const;
@@ -50,9 +50,10 @@ public:
     const TypeData & Data(const sc2::UpgradeID & type) const;
     const TypeData & Data(const BuildType & type) const;
     const sc2::Race & GetPlayerRace(int player) const;
+	int GetCurrentSupply() const;
+	int GetMaxSupply() const;
     sc2::Point2D GetStartLocation() const;
+	const std::vector<CCPosition> & GetStartLocations() const;
     const sc2::Unit * GetUnit(const UnitTag & tag) const;
-	bool warpgateComplete() {
-		return m_warpgateResearched;
-	}
+	StateManager & State();
 };

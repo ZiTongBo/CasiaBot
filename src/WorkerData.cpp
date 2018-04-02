@@ -33,7 +33,7 @@ void WorkerData::updateAllWorkerData()
         {
             setWorkerJob(worker, WorkerJobs::Idle);
         }
-
+		
         // TODO: If it's a gas worker whose refinery has been destroyed, set to minerals
     }
 
@@ -52,6 +52,11 @@ void WorkerData::updateAllWorkerData()
     {
         workerDestroyed(worker);
     }
+
+	for (auto worker : m_workers)
+	{
+		m_bot.Map().drawText(sc2::Point2D(worker->pos.x, worker->pos.y), getJobCode(worker), sc2::Colors::Green);
+	}
 }
 
 void WorkerData::workerDestroyed(const sc2::Unit * unit)
@@ -122,6 +127,10 @@ void WorkerData::setWorkerJob(const sc2::Unit * unit, int job, const sc2::Unit *
     {
 
     }
+	else if (job == WorkerJobs::Wait)
+	{
+
+	}
 }
 
 void WorkerData::clearPreviousJob(const sc2::Unit * unit)
@@ -182,19 +191,20 @@ const sc2::Unit * WorkerData::getMineralToMine(const sc2::Unit * unit) const
 {
     const sc2::Unit * bestMineral = nullptr;
     double bestDist = 100000;
+	
+		for (auto mineral : m_bot.Observation()->GetUnits())
+		{
+			if (!Util::IsMineral(mineral)) continue;
 
-    for (auto mineral : m_bot.Observation()->GetUnits())
-    {
-        if (!Util::IsMineral(mineral)) continue;
+			double dist = Util::Dist(mineral->pos, unit->pos);
 
-        double dist = Util::Dist(mineral->pos, unit->pos);
-
-        if (dist < bestDist)
-        {
-            bestMineral = mineral;
-            bestDist = dist;
-        }
-    }
+			if (dist < bestDist)
+			{
+				bestMineral = mineral;
+				bestDist = dist;
+			}
+		}
+	
 
     return bestMineral;
 }
@@ -256,6 +266,7 @@ const char * WorkerData::getJobCode(const sc2::Unit * unit)
     if (j == WorkerJobs::Repair)    return "R";
     if (j == WorkerJobs::Move)      return "O";
     if (j == WorkerJobs::Scout)     return "S";
+	if (j == WorkerJobs::Wait)		return "W";
     return "X";
 }
 

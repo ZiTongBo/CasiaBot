@@ -52,7 +52,7 @@ void WorkerManager::handleGasWorkers()
             int numAssigned = m_workerData.getNumAssignedWorkers(unit);
 
             // if it's less than we want it to be, fill 'er up
-            for (int i=0; i<(3-numAssigned); ++i)
+            for (int i=0; i<(m_bot.Config().WorkersPerRefinery-numAssigned); ++i)
             {
                 auto gasWorker = getGasWorker(unit);
                 if (gasWorker)
@@ -76,6 +76,10 @@ void WorkerManager::handleIdleWorkers()
         {
             continue;
         }
+		if (m_workerData.getWorkerJob(worker) == WorkerJobs::Wait)
+		{
+			continue;
+		}
 
         // if it is idle
         if (Util::IsIdle(worker) || m_workerData.getWorkerJob(worker) == WorkerJobs::Idle)
@@ -90,30 +94,36 @@ void WorkerManager::handleRepairWorkers()
     // TODO
 }
 
-const sc2::Unit * WorkerManager::getClosestMineralWorkerTo(const sc2::Point2D & pos) const
+const sc2::Unit * WorkerManager::getClosestBuildableWorkerTo(const sc2::Point2D & pos) const
 {
-    const sc2::Unit * closestMineralWorker = nullptr;
-    double closestDist = std::numeric_limits<double>::max();
+	const sc2::Unit * closestWorker = nullptr;
+	float closestDist = std::numeric_limits<float>::max();
 
-    // for each of our workers
-    for (auto worker : m_workerData.getWorkers())
-    {
-        if (!worker) { continue; }
+	bool inThird = false;
+	if (m_bot.Bases().getPlayerThirdLocation(Players::Enemy) &&
+		Util::PlanerDist(pos, m_bot.Bases().getPlayerThirdLocation(Players::Enemy)->getDepotPosition()) < 10)
+	{
+		inThird = true;
+	}
+	// for each of our workers
+	for (auto worker : m_workerData.getWorkers())
+	{
+		if (!worker) { continue; }
 
-        // if it is a mineral worker
-        if (m_workerData.getWorkerJob(worker) == WorkerJobs::Minerals)
-        {
-            double dist = Util::DistSq(worker->pos, pos);
+		// if it is a mineral worker
+		if (m_workerData.getWorkerJob(worker) == WorkerJobs::Minerals || m_workerData.getWorkerJob(worker) == WorkerJobs::Wait || m_workerData.getWorkerJob(worker) == WorkerJobs::Idle)
+		{
+			float dist = Util::PlanerDist(worker->pos, pos);
 
-            if (!closestMineralWorker || dist < closestDist)
-            {
-                closestMineralWorker = worker;
-                dist = closestDist;
-            }
-        }
-    }
+			if (!closestWorker || dist < closestDist)
+			{
+				closestWorker = worker;
+				closestDist = dist;
+			}
+		}
+	}
 
-    return closestMineralWorker;
+	return closestWorker;
 }
 
 
@@ -122,13 +132,19 @@ void WorkerManager::setMineralWorker(const sc2::Unit * unit)
 {
     // check if there is a mineral available to send the worker to
     auto depot = getClosestDepot(unit);
-
+	if (!depot) {
+		return;
+	}
     // if there is a valid mineral
-    if (depot)
+    if (Util::Dist(depot->pos,unit->pos) < 4)
     {
         // update m_workerData with the new job
         m_workerData.setWorkerJob(unit, WorkerJobs::Minerals, depot);
-    }
+	}
+	else {
+		Micro::SmartMove(unit, depot->pos, m_bot);
+	}
+
 }
 
 const sc2::Unit * WorkerManager::getClosestDepot(const sc2::Unit * worker) const
@@ -140,7 +156,7 @@ const sc2::Unit * WorkerManager::getClosestDepot(const sc2::Unit * worker) const
     {
         if (!unit) { continue; }
 
-        if (Util::IsTownHall(unit) && Util::IsCompleted(unit))
+        if (Util::IsTownHall(unit) && Util::IsCompleted(unit) && unit->assigned_harvesters < 16)
         {
             double distance = Util::DistSq(unit->pos, worker->pos);
             if (!closestDepot || distance < closestDistance)
@@ -158,14 +174,12 @@ const sc2::Unit * WorkerManager::getClosestDepot(const sc2::Unit * worker) const
 // other managers that need workers call this when they're done with a unit
 void WorkerManager::finishedWithWorker(const sc2::Unit * unit)
 {
-    
-        m_workerData.setWorkerJob(unit, WorkerJobs::Idle);
-    
+	m_workerData.setWorkerJob(unit, WorkerJobs::Idle);
 }
 
 const sc2::Unit * WorkerManager::getGasWorker(const sc2::Unit * refinery) const
 {
-    return getClosestMineralWorkerTo(refinery->pos);
+    return getClosestBuildableWorkerTo(refinery->pos);
 }
 
 void WorkerManager::setBuildingWorker(const sc2::Unit * worker, Building & b)
@@ -173,12 +187,17 @@ void WorkerManager::setBuildingWorker(const sc2::Unit * worker, Building & b)
     m_workerData.setWorkerJob(worker, WorkerJobs::Build, b.buildingUnit);
 }
 
+void WorkerManager::setWaitWorker(const sc2::Unit * worker)
+{
+	m_workerData.setWorkerJob(worker, WorkerJobs::Wait);
+}
+
 // gets a builder for BuildingManager to use
 // if setJobAsBuilder is true (default), it will be flagged as a builder unit
 // set 'setJobAsBuilder' to false if we just want to see which worker will build a building
 const sc2::Unit * WorkerManager::getBuilder(Building & b, bool setJobAsBuilder) const
 {
-    const sc2::Unit * builderWorker = getClosestMineralWorkerTo(b.finalPosition);
+    const sc2::Unit * builderWorker = getClosestBuildableWorkerTo(Util::GetPosition(b.finalPosition));
 
     // if the worker exists (one may not have been found in rare cases)
     if (builderWorker && setJobAsBuilder)
@@ -211,8 +230,6 @@ void WorkerManager::drawResourceDebugInfo()
     {
         if (!worker) { continue; }
 
-        m_bot.Map().drawText(worker->pos, m_workerData.getJobCode(worker));
-
         auto depot = m_workerData.getWorkerDepot(worker);
         if (depot)
         {
@@ -243,7 +260,8 @@ void WorkerManager::drawWorkerInformation()
 
 bool WorkerManager::isFree(const sc2::Unit * worker) const
 {
-    return m_workerData.getWorkerJob(worker) == WorkerJobs::Minerals || m_workerData.getWorkerJob(worker) == WorkerJobs::Idle;
+    return m_workerData.getWorkerJob(worker) == WorkerJobs::Minerals ||
+		m_workerData.getWorkerJob(worker) == WorkerJobs::Idle;
 }
 
 bool WorkerManager::isWorkerScout(const sc2::Unit * worker) const
@@ -256,13 +274,17 @@ bool WorkerManager::isBuilder(const sc2::Unit * worker) const
     return (m_workerData.getWorkerJob(worker) == WorkerJobs::Build);
 }
 
-int WorkerManager::getNumMineralWorkers()
+int WorkerManager::getNumMineralWorkers() const
 {
     return m_workerData.getWorkerJobCount(WorkerJobs::Minerals);
 }
 
-int WorkerManager::getNumGasWorkers()
+int WorkerManager::getNumGasWorkers() const
 {
     return m_workerData.getWorkerJobCount(WorkerJobs::Gas);
+}
 
+int WorkerManager::getNumWorkers(int job) const
+{
+	return m_workerData.getWorkerJobCount(job);
 }
